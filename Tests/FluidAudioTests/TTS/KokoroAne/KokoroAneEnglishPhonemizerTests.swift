@@ -249,11 +249,18 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
 
     // MARK: - Degraded paths
 
-    func testG2PNilSkipsWordButKeepsRest() async throws {
-        let result = try await makePhonemizer().phonemize("want zzz go") { word in
-            word == "zzz" ? nil : ["x"]
+    func testMissingPronunciationNeverSilentlyDropsWords() async {
+        for fallback: [String]? in [nil, []] {
+            do {
+                _ = try await makePhonemizer().phonemize("want zzz go") { _ in fallback }
+                XCTFail("expected missing pronunciation to fail the utterance")
+            } catch let error as KokoroAneError {
+                guard case .inputProcessingFailed(let message) = error else {
+                    return XCTFail("unexpected error")
+                }
+                XCTAssertFalse(message.contains("zzz"))
+            } catch { XCTFail("unexpected error") }
         }
-        XCTAssertEqual(result, "wˈɑnt ɡˈO")
     }
 
     func testG2PErrorPropagates() async {
@@ -343,13 +350,13 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         XCTAssertEqual(recorded, ["tales", "amaze"])
     }
 
-    func testHyphenatedCompoundFallsBackToWholeWordWhenPartUnresolved() async throws {
-        // If any part can't be resolved, the compound aborts and the whole
-        // glued token goes to G2P — no partial output.
-        let result = try await makePhonemizer().phonemize("go-zzz") { word in
-            word == "zzz" ? nil : ["<g2p:\(word)>"]
-        }
-        XCTAssertEqual(result, "<g2p:gozzz>")
+    func testHyphenatedCompoundDoesNotDropAnUnresolvedPart() async {
+        do {
+            _ = try await makePhonemizer().phonemize("go-zzz") { _ in nil }
+            XCTFail("expected unresolved compound to fail")
+        } catch let error as KokoroAneError {
+            guard case .inputProcessingFailed = error else { return XCTFail("unexpected error") }
+        } catch { XCTFail("unexpected error") }
     }
 
     // MARK: - Without lexicon (pre-#691 behavior preserved)

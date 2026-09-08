@@ -61,7 +61,7 @@ struct KokoroAneEnglishPhonemizer: Sendable {
     ///
     /// - Parameter fallback: per-word G2P for words missing from every
     ///   lexicon. Receives the normalized (lower-cased) spelling. `nil`
-    ///   return skips the word with a warning; a thrown error aborts.
+    ///   or empty output throws; narration must never silently omit a word.
     /// - Throws: `KokoroAneError.inputProcessingFailed` when the input is
     ///   empty or nothing could be resolved.
     func phonemize(
@@ -178,8 +178,7 @@ struct KokoroAneEnglishPhonemizer: Sendable {
             if let phonemes = try await fallback(normalized), !phonemes.isEmpty {
                 return phonemes.joined()
             }
-            Self.logger.warning("G2P returned nil for word '\(normalized)' — skipping")
-            return nil
+            throw KokoroAneError.inputProcessingFailed("A word could not be pronounced.")
         } catch {
             Self.logger.warning("G2P failed on word '\(normalized)': \(error.localizedDescription)")
             throw error
