@@ -370,3 +370,25 @@ final class KokoroAneEnglishPhonemizerTests: XCTestCase {
         XCTAssertTrue(result.contains("tˈO"), "G2P-only path keeps the old citation form")
     }
 }
+
+extension KokoroAneEnglishPhonemizerTests {
+    func testBritishLexiconPreservesNonRhoticReadingsAndPunctuation() async throws {
+        let gb = KokoroAneEnglishPhonemizer(
+            wordToPhonemes: ["bath": "bˈɑːθ".map(String.init), "car": "kˈɑː".map(String.init)],
+            allowedPunctuation: [",", "."]
+        )
+        let result = try await gb.phonemize("Bath, car.") { _ in
+            XCTFail("Known British words must not enter the fallback")
+            return nil
+        }
+        XCTAssertEqual(result, "bˈɑːθ, kˈɑː.")
+    }
+
+    func testAccentFallbackNeverDropsUnresolvedWord() async throws {
+        let frontend = KokoroAneEnglishPhonemizer()
+        do {
+            _ = try await frontend.phonemize("unknown") { _ in nil }
+            XCTFail("Unresolved pronunciation must fail")
+        } catch { }
+    }
+}
