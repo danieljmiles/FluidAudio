@@ -44,6 +44,8 @@ public actor KokoroAneManager {
     /// failure doesn't pin the degraded G2P-only path for the session.
     private var englishPhonemizer: KokoroAneEnglishPhonemizer?
     private var englishCustomLexicon: [String: String] = [:]
+    private var englishPronunciationLexicon: [String: String]?
+    private var englishFallback: (@Sendable (String) async throws -> [String]?)?
     private let englishLexiconCache = LexiconAssetCache()
 
     public init(
@@ -165,6 +167,18 @@ public actor KokoroAneManager {
     public func setEnglishCustomLexicon(_ entries: [String: String]) {
         englishCustomLexicon = entries
         // Rebuild the cached frontend with the new overrides on next use.
+        englishPhonemizer = nil
+    }
+
+    /// Select a caller-owned English accent lexicon and matching fallback.
+    /// Assets must already be available. Words are never silently omitted.
+    /// Call with nil to restore the standard American English frontend.
+    public func setEnglishPronunciation(
+        lexicon: [String: String]?,
+        fallback: (@Sendable (String) async throws -> [String]?)? = nil
+    ) async throws {
+        englishPronunciationLexicon = lexicon
+        englishFallback = lexicon == nil ? nil : fallback
         englishPhonemizer = nil
     }
 
@@ -304,8 +318,10 @@ public actor KokoroAneManager {
     /// and vocab-supported punctuation kept as prosody/pause tokens.
     private func phonemize(text: String) async throws -> String {
         let phonemizer = await ensureEnglishPhonemizer()
+        let accentFallback = englishFallback
         return try await phonemizer.phonemize(text) { word in
-            try await G2PModel.shared.phonemize(word: word)
+            if let fallback = accentFallback { return try await fallback(word) }
+            return try await G2PModel.shared.phonemize(word: word)
         }
     }
 
@@ -329,6 +345,18 @@ public actor KokoroAneManager {
             // `isLetter` keeps them out of the punctuation set.
             punctuation = Set(
                 vocab.map.keys.filter { !$0.isLetter && !$0.isNumber && !$0.isWhitespace })
+
+            if let selected = englishPronunciationLexicon {
+                let tokens = selected.mapValues { $0.map(String.init) }
+                let phonemizer = KokoroAneEnglishPhonemizer(
+                    wordToPhonemes: tokens.filter { $0.key == $0.key.lowercased() },
+                    caseSensitiveWordToPhonemes: tokens,
+                    customLexicon: englishCustomLexicon,
+                    allowedPunctuation: punctuation
+                )
+                englishPhonemizer = phonemizer
+                return phonemizer
+            }
 
             if let kokoroDir = await KokoroAneResourceDownloader.ensureEnglishLexicon(directory: nil) {
                 let allowedTokens = Set(vocab.map.keys.map(String.init))
